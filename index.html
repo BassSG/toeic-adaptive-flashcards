@@ -7,31 +7,62 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <main class="app-shell">
+    <section class="start-screen" id="startScreen" aria-labelledby="startTitle">
+      <div class="start-card">
+        <div class="brand-mark">TOEIC</div>
+        <p class="eyebrow">Oxford 3000 Adaptive Trainer</p>
+        <h1 id="startTitle">เริ่มรอบทดสอบคำศัพท์</h1>
+        <p class="start-copy">
+          ใส่ชื่อผู้ใช้งานเพื่อบันทึกสถิติการทดสอบรอบนี้ ระบบจะปรับคำถามตามคำที่ยังอ่อนและประวัติการตอบของผู้ใช้
+        </p>
+        <form class="start-form" id="startForm">
+          <label for="testerName">ชื่อผู้ทดสอบ</label>
+          <div class="start-input-row">
+            <input id="testerName" name="testerName" autocomplete="name" placeholder="เช่น Bass" required />
+            <button type="submit">Start</button>
+          </div>
+        </form>
+        <div class="start-summary" id="startSummary"></div>
+      </div>
+    </section>
+
+    <main class="app-shell is-locked" id="appShell">
       <section class="topbar" aria-label="Learning controls">
-        <div>
+        <div class="title-block">
           <p class="eyebrow">Oxford 3000 PDF</p>
           <h1>TOEIC Adaptive Flashcards</h1>
         </div>
-        <div class="mode-actions">
-          <button class="ghost-button" id="reviewButton" type="button">Review</button>
-          <button class="ghost-button" id="savedReviewButton" type="button">Saved</button>
-          <button class="ghost-button danger" id="resetButton" type="button">Reset</button>
+        <div class="profile-card">
+          <span>Tester</span>
+          <strong id="activeTester">-</strong>
+          <small id="sessionStarted">Not started</small>
         </div>
       </section>
 
-      <section class="level-bar" aria-label="CEFR level selector" id="levelSelector"></section>
+      <section class="command-bar" aria-label="App commands">
+        <div class="mode-actions">
+          <button class="ghost-button" id="reviewButton" type="button">Review</button>
+          <button class="ghost-button" id="savedReviewButton" type="button">Saved</button>
+          <button class="ghost-button" id="newTestButton" type="button">New Test</button>
+          <button class="ghost-button danger" id="resetButton" type="button">Reset</button>
+        </div>
+        <div class="level-bar" aria-label="CEFR level selector" id="levelSelector"></div>
+      </section>
 
       <section class="content-grid">
         <article class="quiz-panel">
           <div class="quiz-meta">
             <span id="modePill">Adaptive</span>
-            <button id="saveButton" class="icon-button" type="button" aria-label="Save word">☆</button>
+            <div class="word-actions">
+              <button id="speakButton" class="icon-button" type="button" aria-label="Listen to word">Listen</button>
+              <button id="saveButton" class="icon-button" type="button" aria-label="Save word">Save</button>
+            </div>
           </div>
 
           <div class="word-stage">
             <p class="word-pos" id="wordPos">Ready</p>
             <h2 id="wordText">เริ่มเรียน</h2>
+            <p class="word-hint" id="wordHint">กด Listen เพื่อฟังเสียงคำศัพท์</p>
           </div>
 
           <div class="answer-grid" id="answerGrid"></div>
@@ -43,8 +74,19 @@
         </article>
 
         <aside class="dashboard-panel">
+          <section class="session-panel">
+            <div>
+              <span class="metric-label">Session</span>
+              <strong id="sessionName">-</strong>
+            </div>
+            <div class="session-time">
+              <span id="elapsedTime">00:00</span>
+              <small>learning time</small>
+            </div>
+          </section>
+
           <div class="stat-grid">
-            <div class="stat-card">
+            <div class="stat-card accent">
               <span>Score</span>
               <strong id="scoreValue">0</strong>
             </div>
@@ -59,6 +101,14 @@
             <div class="stat-card">
               <span>Learned</span>
               <strong id="learnedValue">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Answered</span>
+              <strong id="answeredValue">0</strong>
+            </div>
+            <div class="stat-card">
+              <span>Streak</span>
+              <strong id="streakValue">0</strong>
             </div>
           </div>
 
@@ -86,6 +136,14 @@
               <span id="savedCount">0</span>
             </div>
             <ol id="savedWordsList"></ol>
+          </div>
+
+          <div class="list-block">
+            <div class="list-heading">
+              <h3>Test History</h3>
+              <span id="historyCount">0</span>
+            </div>
+            <ol id="historyList"></ol>
           </div>
         </aside>
       </section>

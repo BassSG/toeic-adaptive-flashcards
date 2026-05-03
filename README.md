@@ -17,6 +17,9 @@ MVP web app for TOEIC vocabulary practice using vocabulary extracted from the pr
 - Adaptive selection: weak words, unseen words, stale words
 - Review mode for weak/wrong words
 - Saved words mode
+- Tester name and formal test session start screen
+- Session timer, answered count, current/best streak, and test history
+- Click-to-listen pronunciation using the browser Speech Synthesis API
 - Score, total answered, accuracy, current level, learned words
 - Top weak words and saved words dashboard
 - LocalStorage persistence

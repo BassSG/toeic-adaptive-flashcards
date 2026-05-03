@@ -1,5 +1,6 @@
 const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
-const STORAGE_KEY = "toeic-adaptive-oxford-3000:v1";
+const STORAGE_KEY = "toeic-adaptive-oxford-3000:v2";
+const LEGACY_STORAGE_KEY = "toeic-adaptive-oxford-3000:v1";
 
 const vocab = (window.VOCAB_DATA || []).map((entry, index) => ({
   ...entry,
@@ -13,14 +14,26 @@ const byLevel = LEVELS.reduce((acc, level) => {
 }, {});
 
 const elements = {
+  appShell: document.querySelector("#appShell"),
+  startScreen: document.querySelector("#startScreen"),
+  startForm: document.querySelector("#startForm"),
+  testerName: document.querySelector("#testerName"),
+  startSummary: document.querySelector("#startSummary"),
+  activeTester: document.querySelector("#activeTester"),
+  sessionStarted: document.querySelector("#sessionStarted"),
+  sessionName: document.querySelector("#sessionName"),
+  elapsedTime: document.querySelector("#elapsedTime"),
   levelSelector: document.querySelector("#levelSelector"),
   modePill: document.querySelector("#modePill"),
   reviewButton: document.querySelector("#reviewButton"),
   savedReviewButton: document.querySelector("#savedReviewButton"),
+  newTestButton: document.querySelector("#newTestButton"),
   resetButton: document.querySelector("#resetButton"),
+  speakButton: document.querySelector("#speakButton"),
   saveButton: document.querySelector("#saveButton"),
   wordPos: document.querySelector("#wordPos"),
   wordText: document.querySelector("#wordText"),
+  wordHint: document.querySelector("#wordHint"),
   answerGrid: document.querySelector("#answerGrid"),
   feedbackText: document.querySelector("#feedbackText"),
   nextButton: document.querySelector("#nextButton"),
@@ -28,23 +41,34 @@ const elements = {
   accuracyValue: document.querySelector("#accuracyValue"),
   levelValue: document.querySelector("#levelValue"),
   learnedValue: document.querySelector("#learnedValue"),
+  answeredValue: document.querySelector("#answeredValue"),
+  streakValue: document.querySelector("#streakValue"),
   levelAccuracyValue: document.querySelector("#levelAccuracyValue"),
   levelAccuracyMeter: document.querySelector("#levelAccuracyMeter"),
   weakWordsList: document.querySelector("#weakWordsList"),
   weakCount: document.querySelector("#weakCount"),
   savedWordsList: document.querySelector("#savedWordsList"),
   savedCount: document.querySelector("#savedCount"),
+  historyList: document.querySelector("#historyList"),
+  historyCount: document.querySelector("#historyCount"),
 };
 
 const state = loadState();
 let currentQuestion = null;
 let answered = false;
+let sessionTimer = null;
 
 init();
 
 function init() {
-  renderLevelSelector();
   bindEvents();
+  renderStartSummary();
+  if (state.activeSession) {
+    unlockApp();
+  } else {
+    lockApp();
+  }
+  renderLevelSelector();
   renderQuestion();
   renderDashboard();
 }
@@ -54,6 +78,8 @@ function loadState() {
     memory: {},
     savedWords: [],
     wrongWords: [],
+    activeSession: null,
+    sessionHistory: [],
     userStats: {
       score: 0,
       correct: 0,
@@ -61,20 +87,39 @@ function loadState() {
       currentLevel: "A1",
       mode: "adaptive",
       levelStats: {},
+      currentStreak: 0,
+      bestStreak: 0,
     },
   };
 
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    if (!saved) return fallback;
-    return {
-      ...fallback,
-      ...saved,
-      userStats: { ...fallback.userStats, ...(saved.userStats || {}) },
-    };
+    if (saved) {
+      return normalizeState(saved, fallback);
+    }
+
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_STORAGE_KEY));
+    if (legacy) {
+      return normalizeState(legacy, fallback);
+    }
   } catch {
     return fallback;
   }
+
+  return fallback;
+}
+
+function normalizeState(saved, fallback) {
+  return {
+    ...fallback,
+    ...saved,
+    activeSession: saved.activeSession || null,
+    sessionHistory: Array.isArray(saved.sessionHistory) ? saved.sessionHistory : [],
+    userStats: { ...fallback.userStats, ...(saved.userStats || {}) },
+    savedWords: Array.isArray(saved.savedWords) ? saved.savedWords : [],
+    wrongWords: Array.isArray(saved.wrongWords) ? saved.wrongWords : [],
+    memory: saved.memory || {},
+  };
 }
 
 function saveState() {
@@ -82,11 +127,90 @@ function saveState() {
 }
 
 function bindEvents() {
+  elements.startForm.addEventListener("submit", startSession);
   elements.nextButton.addEventListener("click", renderQuestion);
   elements.saveButton.addEventListener("click", toggleSavedWord);
+  elements.speakButton.addEventListener("click", speakCurrentWord);
   elements.reviewButton.addEventListener("click", () => setMode(state.userStats.mode === "review" ? "adaptive" : "review"));
   elements.savedReviewButton.addEventListener("click", () => setMode(state.userStats.mode === "saved" ? "adaptive" : "saved"));
+  elements.newTestButton.addEventListener("click", openNewTest);
   elements.resetButton.addEventListener("click", resetProgress);
+}
+
+function startSession(event) {
+  event.preventDefault();
+  const tester = elements.testerName.value.trim();
+  if (!tester) return;
+
+  if (state.activeSession && state.userStats.totalAnswered > 0) {
+    archiveCurrentSession();
+  }
+
+  state.activeSession = {
+    id: window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : `${Date.now()}`,
+    tester,
+    startedAt: Date.now(),
+  };
+
+  state.userStats.score = 0;
+  state.userStats.correct = 0;
+  state.userStats.totalAnswered = 0;
+  state.userStats.currentStreak = 0;
+  state.userStats.bestStreak = 0;
+  state.userStats.levelStats = {};
+  state.userStats.mode = "adaptive";
+  state.userStats.currentLevel = firstAvailableLevel();
+
+  saveState();
+  unlockApp();
+  renderLevelSelector();
+  renderQuestion();
+  renderDashboard();
+}
+
+function unlockApp() {
+  elements.startScreen.classList.add("is-hidden");
+  elements.appShell.classList.remove("is-locked");
+  startSessionTimer();
+}
+
+function lockApp() {
+  elements.startScreen.classList.remove("is-hidden");
+  elements.appShell.classList.add("is-locked");
+  stopSessionTimer();
+  setTimeout(() => elements.testerName.focus(), 80);
+}
+
+function openNewTest() {
+  if (state.activeSession && state.userStats.totalAnswered > 0) {
+    archiveCurrentSession();
+  }
+  state.activeSession = null;
+  saveState();
+  renderStartSummary();
+  lockApp();
+}
+
+function archiveCurrentSession() {
+  if (!state.activeSession) return;
+  const stats = state.userStats;
+  state.sessionHistory.unshift({
+    id: state.activeSession.id,
+    tester: state.activeSession.tester,
+    startedAt: state.activeSession.startedAt,
+    endedAt: Date.now(),
+    score: stats.score,
+    answered: stats.totalAnswered,
+    correct: stats.correct,
+    accuracy: stats.totalAnswered ? stats.correct / stats.totalAnswered : 0,
+    bestStreak: stats.bestStreak,
+    level: stats.currentLevel,
+  });
+  state.sessionHistory = state.sessionHistory.slice(0, 12);
+}
+
+function firstAvailableLevel() {
+  return LEVELS.find((level) => byLevel[level].length > 0) || "A1";
 }
 
 function renderLevelSelector() {
@@ -119,6 +243,18 @@ function setMode(mode) {
 }
 
 function renderQuestion() {
+  if (!state.activeSession) {
+    currentQuestion = null;
+    elements.wordPos.textContent = "Ready";
+    elements.wordText.textContent = "เริ่มเรียน";
+    elements.wordHint.textContent = "ใส่ชื่อผู้ทดสอบเพื่อเริ่มรอบใหม่";
+    elements.answerGrid.innerHTML = "";
+    elements.feedbackText.textContent = "รอเริ่มรอบทดสอบ";
+    elements.nextButton.disabled = true;
+    updateSaveButton();
+    return;
+  }
+
   const entry = selectEntry();
   answered = false;
   elements.nextButton.disabled = true;
@@ -128,7 +264,8 @@ function renderQuestion() {
     currentQuestion = null;
     elements.wordPos.textContent = state.userStats.currentLevel;
     elements.wordText.textContent = "ไม่มีคำในชุดนี้";
-    elements.feedbackText.textContent = "เปลี่ยน level หรือกลับ Adaptive";
+    elements.wordHint.textContent = "ลองเปลี่ยน level หรือกลับ Adaptive";
+    elements.feedbackText.textContent = "ไม่มีคำสำหรับโหมดนี้";
     updateModeControls();
     updateSaveButton();
     return;
@@ -141,13 +278,14 @@ function renderQuestion() {
 
   elements.wordPos.textContent = `${entry.pos || "-"} · ${entry.level}`;
   elements.wordText.textContent = entry.word;
+  elements.wordHint.textContent = `Strength ${Math.round(getStrength(entry) * 100)}% · ${entry.meaning}`;
   elements.feedbackText.textContent = "เลือกคำตอบที่ถูกต้อง";
 
   currentQuestion.choices.forEach((choice, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "answer-button";
-    button.textContent = `${String.fromCharCode(65 + index)}. ${choice}`;
+    button.innerHTML = `<span>${String.fromCharCode(65 + index)}</span><strong>${escapeHtml(choice)}</strong>`;
     button.addEventListener("click", () => answerQuestion(choice, button));
     elements.answerGrid.appendChild(button);
   });
@@ -228,9 +366,12 @@ function answerQuestion(selectedMeaning, selectedButton) {
   if (correct) {
     memory.correct += 1;
     state.userStats.score += 1;
+    state.userStats.currentStreak += 1;
+    state.userStats.bestStreak = Math.max(state.userStats.bestStreak, state.userStats.currentStreak);
   } else {
     memory.wrong += 1;
     memory.lastWrongAt = Date.now();
+    state.userStats.currentStreak = 0;
   }
   memory.strength = calculateStrength(memory);
 
@@ -240,7 +381,7 @@ function answerQuestion(selectedMeaning, selectedButton) {
   updateWrongWords(entry.id, correct, memory.strength);
 
   [...elements.answerGrid.children].forEach((button) => {
-    const rawChoice = button.textContent.replace(/^[A-C]\.\s/, "");
+    const rawChoice = button.querySelector("strong")?.textContent || "";
     button.disabled = true;
     if (rawChoice === entry.meaning) button.classList.add("correct");
   });
@@ -253,6 +394,23 @@ function answerQuestion(selectedMeaning, selectedButton) {
   saveState();
   renderDashboard();
   updateSaveButton();
+}
+
+function speakCurrentWord() {
+  if (!currentQuestion) return;
+  if (!("speechSynthesis" in window)) {
+    elements.feedbackText.textContent = "เบราว์เซอร์นี้ยังไม่รองรับระบบอ่านออกเสียง";
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(currentQuestion.entry.word);
+  utterance.lang = "en-US";
+  utterance.rate = 0.82;
+  utterance.pitch = 1;
+  utterance.volume = 1;
+  window.speechSynthesis.speak(utterance);
+  elements.feedbackText.textContent = `Listening · ${currentQuestion.entry.word}`;
 }
 
 function ensureMemory(entry) {
@@ -340,7 +498,7 @@ function toggleSavedWord() {
 function updateSaveButton() {
   const isSaved = currentQuestion && state.savedWords.includes(currentQuestion.entry.id);
   elements.saveButton.classList.toggle("is-saved", Boolean(isSaved));
-  elements.saveButton.textContent = isSaved ? "★" : "☆";
+  elements.saveButton.textContent = isSaved ? "Saved" : "Save";
 }
 
 function updateModeControls() {
@@ -359,14 +517,20 @@ function renderDashboard() {
   const weakEntries = getWeakEntries();
   const savedEntries = state.savedWords.map((id) => byId.get(id)).filter(Boolean).slice(0, 5);
 
+  elements.activeTester.textContent = state.activeSession?.tester || "-";
+  elements.sessionName.textContent = state.activeSession?.tester || "-";
+  elements.sessionStarted.textContent = state.activeSession ? `Started ${formatTime(state.activeSession.startedAt)}` : "Not started";
   elements.scoreValue.textContent = stats.score;
   elements.accuracyValue.textContent = `${Math.round(accuracy * 100)}%`;
   elements.levelValue.textContent = stats.currentLevel;
   elements.learnedValue.textContent = learned;
+  elements.answeredValue.textContent = stats.totalAnswered;
+  elements.streakValue.textContent = `${stats.currentStreak}/${stats.bestStreak}`;
   elements.levelAccuracyValue.textContent = `${Math.round(levelAccuracy * 100)}%`;
   elements.levelAccuracyMeter.style.width = `${Math.round(levelAccuracy * 100)}%`;
   elements.weakCount.textContent = weakEntries.length;
   elements.savedCount.textContent = state.savedWords.length;
+  elements.historyCount.textContent = state.sessionHistory.length;
 
   renderList(elements.weakWordsList, weakEntries.slice(0, 5), (entry) => {
     const strength = Math.round(getStrength(entry) * 100);
@@ -374,8 +538,10 @@ function renderDashboard() {
   });
 
   renderList(elements.savedWordsList, savedEntries, (entry) => `${entry.word} · ${entry.meaning}`);
+  renderList(elements.historyList, state.sessionHistory.slice(0, 5), formatHistoryItem);
   renderLevelSelector();
   updateModeControls();
+  renderElapsedTime();
 }
 
 function getWeakEntries() {
@@ -403,14 +569,48 @@ function renderList(target, entries, formatter) {
   });
 }
 
+function renderStartSummary() {
+  const latest = state.sessionHistory[0];
+  if (!latest) {
+    elements.startSummary.textContent = `พร้อมใช้งาน ${vocab.length.toLocaleString()} คำ จาก Oxford 3000 PDF`;
+    return;
+  }
+  elements.startSummary.textContent = `รอบล่าสุด: ${latest.tester} · ${Math.round(latest.accuracy * 100)}% · ${latest.answered} ข้อ`;
+}
+
+function startSessionTimer() {
+  stopSessionTimer();
+  renderElapsedTime();
+  sessionTimer = window.setInterval(renderElapsedTime, 1000);
+}
+
+function stopSessionTimer() {
+  if (sessionTimer) window.clearInterval(sessionTimer);
+  sessionTimer = null;
+}
+
+function renderElapsedTime() {
+  if (!state.activeSession) {
+    elements.elapsedTime.textContent = "00:00";
+    return;
+  }
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - state.activeSession.startedAt) / 1000));
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  elements.elapsedTime.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
 function resetProgress() {
   if (!window.confirm("Reset all local progress?")) return;
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(LEGACY_STORAGE_KEY);
   Object.assign(state, loadState());
   currentQuestion = null;
+  renderStartSummary();
   renderLevelSelector();
   renderQuestion();
   renderDashboard();
+  lockApp();
 }
 
 function uniqueByMeaning(items) {
@@ -429,4 +629,27 @@ function shuffle(items) {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
+}
+
+function formatTime(timestamp) {
+  return new Intl.DateTimeFormat("th-TH", {
+    hour: "2-digit",
+    minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+  }).format(new Date(timestamp));
+}
+
+function formatHistoryItem(session) {
+  const accuracy = Math.round(session.accuracy * 100);
+  return `${session.tester} · ${accuracy}% · ${session.answered} ข้อ · ${formatTime(session.startedAt)}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
