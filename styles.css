@@ -295,9 +295,17 @@ h1 {
   color: #ffffff;
 }
 
-.level-button:disabled {
+.level-button.is-empty {
   background: #f2efe9;
-  color: #a19383;
+  border-color: #e2d8ca;
+  color: #8c7b65;
+  font-size: 0.82rem;
+}
+
+.level-button.is-empty.is-active {
+  background: #8c7b65;
+  border-color: #8c7b65;
+  color: #ffffff;
 }
 
 .content-grid {

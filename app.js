@@ -12,6 +12,7 @@ const byLevel = LEVELS.reduce((acc, level) => {
   acc[level] = vocab.filter((entry) => entry.level === level);
   return acc;
 }, {});
+const sourceLevels = LEVELS.filter((level) => byLevel[level].length > 0);
 
 const elements = {
   appShell: document.querySelector("#appShell"),
@@ -211,7 +212,7 @@ function archiveCurrentSession() {
 }
 
 function firstAvailableLevel() {
-  return LEVELS.find((level) => byLevel[level].length > 0) || "A1";
+  return sourceLevels[0] || "A1";
 }
 
 function renderLevelSelector() {
@@ -220,9 +221,9 @@ function renderLevelSelector() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "level-button";
-    button.textContent = level;
-    button.disabled = byLevel[level].length === 0;
-    button.title = button.disabled ? "No source data in the provided PDF" : `${byLevel[level].length} words`;
+    button.textContent = byLevel[level].length === 0 ? `${level} · no data` : level;
+    button.title = byLevel[level].length === 0 ? "ยังไม่มีข้อมูลระดับนี้ใน PDF ที่ให้มา" : `${byLevel[level].length} words`;
+    button.classList.toggle("is-empty", byLevel[level].length === 0);
     button.classList.toggle("is-active", state.userStats.currentLevel === level);
     button.addEventListener("click", () => {
       state.userStats.currentLevel = level;
@@ -265,9 +266,9 @@ function renderQuestion() {
   if (!entry) {
     currentQuestion = null;
     elements.wordPos.textContent = state.userStats.currentLevel;
-    elements.wordText.textContent = "ไม่มีคำในชุดนี้";
-    elements.wordHint.textContent = "ลองเปลี่ยน level หรือกลับ Adaptive";
-    elements.feedbackText.textContent = "ไม่มีคำสำหรับโหมดนี้";
+    elements.wordText.textContent = "ยังไม่มีข้อมูล";
+    elements.wordHint.textContent = `ไฟล์ PDF ที่ใช้เป็น source มีข้อมูล ${sourceLevels.join(", ")} เท่านั้น ยังไม่มีคำศัพท์ระดับ ${state.userStats.currentLevel}`;
+    elements.feedbackText.textContent = "เลือก A1-B2 เพื่อทำข้อสอบ หรือเพิ่มไฟล์ C1/C2 ในเฟสถัดไป";
     updateModeControls();
     updateSaveButton();
     return;
