@@ -9,6 +9,7 @@ MVP web app for TOEIC vocabulary practice using vocabulary extracted from the pr
 - `app.js` - quiz, adaptive logic, LocalStorage, dashboard
 - `data/vocab.js` - extracted vocabulary dataset
 - `tools/extract_vocab.py` - PDF extraction script
+- `tools/audit_vocab.js` - dataset structure audit helper
 
 ## Implemented
 
@@ -18,7 +19,8 @@ MVP web app for TOEIC vocabulary practice using vocabulary extracted from the pr
 - Review mode for weak/wrong words
 - Saved words mode
 - Tester name and formal test session start screen
-- Session timer, answered count, current/best streak, and test history
+- Configurable test sessions, defaulting to 50 questions in 15 minutes
+- Countdown timer, progress bar, answered count, current/best streak, and test history
 - Click-to-listen pronunciation using the browser Speech Synthesis API
 - Score, total answered, accuracy, current level, learned words
 - Top weak words and saved words dashboard
@@ -31,6 +33,8 @@ The supplied PDF contains CEFR source levels A1-B2. The app groups them into thr
 - A = A1 + A2
 - B = B1
 - C = B2
+
+Dataset audit result: 3,134 total entries, no empty fields, no Thai text in the word column, and no English text in the Thai meaning column. Repeated words are kept when they appear with different POS or source levels.
 
 ## Run
 

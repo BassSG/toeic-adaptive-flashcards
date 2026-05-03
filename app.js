@@ -7,11 +7,18 @@ const SOURCE_TIER_MAP = {
   B1: "B",
   B2: "C",
 };
+const DEFAULT_QUESTION_TARGET = 50;
+const DEFAULT_TIME_LIMIT_MINUTES = 15;
 
-const vocab = (window.VOCAB_DATA || []).map((entry, index) => ({
-  ...entry,
-  id: `${entry.level}|${entry.word}|${entry.pos}|${entry.meaning}|${index}`,
-}));
+const vocab = (window.VOCAB_DATA || []).map((entry, index) => {
+  const normalized = normalizeVocabEntry(entry);
+  return {
+    ...normalized,
+    id: `${entry.level}|${entry.word}|${entry.pos}|${entry.meaning}|${index}`,
+    sourceWord: entry.word,
+    sourcePos: entry.pos,
+  };
+});
 
 const byId = new Map(vocab.map((entry) => [entry.id, entry]));
 const byLevel = LEVELS.reduce((acc, level) => {
@@ -28,6 +35,8 @@ const elements = {
   startScreen: document.querySelector("#startScreen"),
   startForm: document.querySelector("#startForm"),
   testerName: document.querySelector("#testerName"),
+  questionTarget: document.querySelector("#questionTarget"),
+  timeLimit: document.querySelector("#timeLimit"),
   startSummary: document.querySelector("#startSummary"),
   activeTester: document.querySelector("#activeTester"),
   sessionStarted: document.querySelector("#sessionStarted"),
@@ -48,6 +57,8 @@ const elements = {
   answerGrid: document.querySelector("#answerGrid"),
   feedbackText: document.querySelector("#feedbackText"),
   nextButton: document.querySelector("#nextButton"),
+  progressValue: document.querySelector("#progressValue"),
+  progressMeter: document.querySelector("#progressMeter"),
   scoreValue: document.querySelector("#scoreValue"),
   accuracyValue: document.querySelector("#accuracyValue"),
   levelValue: document.querySelector("#levelValue"),
@@ -125,10 +136,11 @@ function loadState() {
 function normalizeState(saved, fallback) {
   const userStats = { ...fallback.userStats, ...(saved.userStats || {}) };
   userStats.currentLevel = normalizeTier(userStats.currentLevel);
+  const activeSession = normalizeActiveSession(saved.activeSession);
   return {
     ...fallback,
     ...saved,
-    activeSession: saved.activeSession || null,
+    activeSession,
     sessionHistory: Array.isArray(saved.sessionHistory) ? saved.sessionHistory : [],
     userStats,
     savedWords: Array.isArray(saved.savedWords) ? saved.savedWords : [],
@@ -157,6 +169,9 @@ function startSession(event) {
   event.preventDefault();
   const tester = elements.testerName.value.trim();
   if (!tester) return;
+  const targetQuestions = clampNumber(elements.questionTarget.value, 5, 200, DEFAULT_QUESTION_TARGET);
+  const timeLimitMinutes = clampNumber(elements.timeLimit.value, 1, 180, DEFAULT_TIME_LIMIT_MINUTES);
+  const startedAt = Date.now();
 
   if (state.activeSession && state.userStats.totalAnswered > 0) {
     archiveCurrentSession();
@@ -165,7 +180,10 @@ function startSession(event) {
   state.activeSession = {
     id: window.crypto && typeof window.crypto.randomUUID === "function" ? window.crypto.randomUUID() : `${Date.now()}`,
     tester,
-    startedAt: Date.now(),
+    startedAt,
+    targetQuestions,
+    timeLimitMinutes,
+    endsAt: startedAt + timeLimitMinutes * 60 * 1000,
   };
 
   state.userStats.score = 0;
@@ -176,6 +194,7 @@ function startSession(event) {
   state.userStats.levelStats = {};
   state.userStats.mode = "adaptive";
   state.userStats.currentLevel = firstAvailableLevel();
+  recentWordIds = [];
 
   saveState();
   unlockApp();
@@ -200,6 +219,7 @@ function lockApp() {
 function openNewTest() {
   if (state.activeSession && state.userStats.totalAnswered > 0) {
     archiveCurrentSession();
+    state.sessionHistory[0].reason = "ended";
   }
   state.activeSession = null;
   clearAutoNext();
@@ -211,7 +231,13 @@ function openNewTest() {
 
 function endCurrentTest() {
   if (!state.activeSession) return;
+  finishCurrentTest("ended");
+}
+
+function finishCurrentTest(reason) {
+  if (!state.activeSession) return;
   archiveCurrentSession();
+  state.sessionHistory[0].reason = reason;
   state.activeSession = null;
   clearAutoNext();
   saveState();
@@ -235,12 +261,46 @@ function archiveCurrentSession() {
     accuracy: stats.totalAnswered ? stats.correct / stats.totalAnswered : 0,
     bestStreak: stats.bestStreak,
     level: stats.currentLevel,
+    targetQuestions: getSessionTarget(),
+    timeLimitMinutes: state.activeSession.timeLimitMinutes || DEFAULT_TIME_LIMIT_MINUTES,
   });
   state.sessionHistory = state.sessionHistory.slice(0, 12);
 }
 
 function firstAvailableLevel() {
   return sourceLevels[0] || "A";
+}
+
+function normalizeActiveSession(session) {
+  if (!session) return null;
+  const targetQuestions = clampNumber(session.targetQuestions, 5, 200, DEFAULT_QUESTION_TARGET);
+  const timeLimitMinutes = clampNumber(session.timeLimitMinutes, 1, 180, DEFAULT_TIME_LIMIT_MINUTES);
+  const startedAt = session.startedAt || Date.now();
+  return {
+    ...session,
+    startedAt,
+    targetQuestions,
+    timeLimitMinutes,
+    endsAt: session.endsAt || startedAt + timeLimitMinutes * 60 * 1000,
+  };
+}
+
+function getSessionTarget() {
+  return state.activeSession?.targetQuestions || DEFAULT_QUESTION_TARGET;
+}
+
+function isSessionComplete() {
+  return Boolean(state.activeSession && state.userStats.totalAnswered >= getSessionTarget());
+}
+
+function isSessionExpired() {
+  return Boolean(state.activeSession && Date.now() >= state.activeSession.endsAt);
+}
+
+function clampNumber(value, min, max, fallback) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.round(parsed)));
 }
 
 function renderLevelSelector() {
@@ -283,6 +343,14 @@ function renderQuestion() {
     elements.feedbackText.textContent = "รอเริ่มรอบทดสอบ";
     elements.nextButton.disabled = true;
     updateSaveButton();
+    return;
+  }
+  if (isSessionComplete()) {
+    finishCurrentTest("completed");
+    return;
+  }
+  if (isSessionExpired()) {
+    finishCurrentTest("time");
     return;
   }
 
@@ -394,6 +462,10 @@ function buildChoices(entry) {
 
 function answerQuestion(selectedMeaning, selectedButton) {
   if (answered || !currentQuestion) return;
+  if (isSessionExpired()) {
+    finishCurrentTest("time");
+    return;
+  }
   answered = true;
 
   const entry = currentQuestion.entry;
@@ -435,7 +507,8 @@ function answerQuestion(selectedMeaning, selectedButton) {
   renderDashboard();
   updateSaveButton();
 
-  autoNextTimer = window.setTimeout(renderQuestion, correct ? 900 : 1800);
+  const nextStep = isSessionComplete() ? () => finishCurrentTest("completed") : renderQuestion;
+  autoNextTimer = window.setTimeout(nextStep, correct ? 900 : 1800);
 }
 
 function clearAutoNext() {
@@ -562,13 +635,17 @@ function renderDashboard() {
   const accuracy = stats.totalAnswered ? stats.correct / stats.totalAnswered : 0;
   const levelStats = stats.levelStats[stats.currentLevel] || { answered: 0, correct: 0 };
   const levelAccuracy = levelStats.answered ? levelStats.correct / levelStats.answered : 0;
+  const targetQuestions = getSessionTarget();
+  const progress = Math.min(stats.totalAnswered, targetQuestions) / targetQuestions;
   const learned = Object.values(state.memory).filter((memory) => memory.correct + memory.wrong > 0).length;
   const weakEntries = getWeakEntries();
   const savedEntries = state.savedWords.map((id) => byId.get(id)).filter(Boolean).slice(0, 5);
 
   elements.activeTester.textContent = state.activeSession?.tester || "-";
   elements.sessionName.textContent = state.activeSession?.tester || "-";
-  elements.sessionStarted.textContent = state.activeSession ? `Started ${formatTime(state.activeSession.startedAt)}` : "Not started";
+  elements.sessionStarted.textContent = state.activeSession
+    ? `Started ${formatTime(state.activeSession.startedAt)} · ${getSessionTarget()}Q/${state.activeSession.timeLimitMinutes || DEFAULT_TIME_LIMIT_MINUTES}m`
+    : "Not started";
   elements.scoreValue.textContent = stats.score;
   elements.accuracyValue.textContent = `${Math.round(accuracy * 100)}%`;
   elements.levelValue.textContent = stats.currentLevel;
@@ -577,6 +654,8 @@ function renderDashboard() {
   elements.streakValue.textContent = `${stats.currentStreak}/${stats.bestStreak}`;
   elements.levelAccuracyValue.textContent = `${Math.round(levelAccuracy * 100)}%`;
   elements.levelAccuracyMeter.style.width = `${Math.round(levelAccuracy * 100)}%`;
+  elements.progressValue.textContent = `${Math.min(stats.totalAnswered, targetQuestions)}/${targetQuestions}`;
+  elements.progressMeter.style.width = `${Math.round(progress * 100)}%`;
   elements.weakCount.textContent = weakEntries.length;
   elements.savedCount.textContent = state.savedWords.length;
   elements.historyCount.textContent = state.sessionHistory.length;
@@ -643,9 +722,15 @@ function renderElapsedTime() {
     elements.elapsedTime.textContent = "00:00";
     return;
   }
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - state.activeSession.startedAt) / 1000));
-  const minutes = Math.floor(elapsedSeconds / 60);
-  const seconds = elapsedSeconds % 60;
+  const remainingMs = Math.max(0, state.activeSession.endsAt - Date.now());
+  if (remainingMs === 0) {
+    elements.elapsedTime.textContent = "00:00";
+    finishCurrentTest("time");
+    return;
+  }
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
   elements.elapsedTime.textContent = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
@@ -702,6 +787,35 @@ function rememberRecentWord(id) {
   recentWordIds = [id, ...recentWordIds.filter((item) => item !== id)].slice(0, RECENT_WORD_LIMIT);
 }
 
+function normalizeVocabEntry(entry) {
+  let word = entry.word;
+  let pos = normalizeEntryPos(entry.pos);
+
+  if (entry.word === "the definite" && entry.pos === "article") {
+    word = "the";
+    pos = "definite article";
+  }
+
+  if (entry.word === "to prep." && entry.pos === "infinitive marker") {
+    word = "to";
+    pos = "prep. infinitive marker";
+  }
+
+  return {
+    ...entry,
+    word,
+    pos,
+  };
+}
+
+function normalizeEntryPos(pos) {
+  return String(pos || "")
+    .replace(/\//g, " ")
+    .replace(/\b(adj|adv|prep|pron|conj|exclam|n|v)\.?(?=\s|$)/g, "$1.")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function formatTime(timestamp) {
   return new Intl.DateTimeFormat("th-TH", {
     hour: "2-digit",
@@ -713,7 +827,9 @@ function formatTime(timestamp) {
 
 function formatHistoryItem(session) {
   const accuracy = Math.round(session.accuracy * 100);
-  return `${session.tester} · ${accuracy}% · ${session.answered} ข้อ · ${formatTime(session.startedAt)}`;
+  const target = session.targetQuestions || DEFAULT_QUESTION_TARGET;
+  const reason = session.reason === "completed" ? "Completed" : session.reason === "time" ? "Time up" : "Ended";
+  return `${session.tester} · ${accuracy}% · ${session.answered}/${target} · ${reason} · ${formatTime(session.startedAt)}`;
 }
 
 function getTier(sourceLevel) {

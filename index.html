@@ -21,6 +21,16 @@
             <input id="testerName" name="testerName" autocomplete="name" placeholder="เช่น Bass" required />
             <button type="submit">Start</button>
           </div>
+          <div class="test-config">
+            <label>
+              <span>Questions</span>
+              <input id="questionTarget" name="questionTarget" type="number" min="5" max="200" step="5" value="50" />
+            </label>
+            <label>
+              <span>Minutes</span>
+              <input id="timeLimit" name="timeLimit" type="number" min="1" max="180" step="1" value="15" />
+            </label>
+          </div>
         </form>
         <div class="start-summary" id="startSummary"></div>
       </div>
@@ -60,6 +70,16 @@
             </div>
           </div>
 
+          <div class="test-progress" aria-label="Test progress">
+            <div class="progress-copy">
+              <span>Progress</span>
+              <strong id="progressValue">0/50</strong>
+            </div>
+            <div class="progress-track">
+              <div id="progressMeter"></div>
+            </div>
+          </div>
+
           <div class="word-stage">
             <p class="word-pos" id="wordPos">Ready</p>
             <h2 id="wordText">เริ่มเรียน</h2>
@@ -82,7 +102,7 @@
             </div>
             <div class="session-time">
               <span id="elapsedTime">00:00</span>
-              <small>learning time</small>
+              <small>time left</small>
             </div>
           </section>
 
