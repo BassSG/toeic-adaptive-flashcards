@@ -401,17 +401,14 @@ function answerQuestion(selectedMeaning, selectedButton) {
   if (!correct) selectedButton.classList.add("wrong");
 
   applyLevelProgression(activeTier);
-  elements.feedbackText.textContent = correct ? "Correct +1" : `ผิด · เฉลยคือ ${entry.meaning}`;
-  elements.wordHint.textContent = correct ? "ตอบถูกแล้ว กด Next เพื่อไปข้อต่อไป" : "กำลังไปข้อต่อไป...";
-  elements.nextButton.disabled = false;
+  elements.feedbackText.textContent = correct ? "Correct +1 · กำลังไปข้อต่อไป" : `ผิด · เฉลยคือ ${entry.meaning}`;
+  elements.wordHint.textContent = "กำลังไปข้อต่อไป...";
+  elements.nextButton.disabled = true;
   saveState();
   renderDashboard();
   updateSaveButton();
 
-  if (!correct) {
-    elements.nextButton.disabled = true;
-    autoNextTimer = window.setTimeout(renderQuestion, 1800);
-  }
+  autoNextTimer = window.setTimeout(renderQuestion, correct ? 900 : 1800);
 }
 
 function clearAutoNext() {
