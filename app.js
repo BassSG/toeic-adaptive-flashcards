@@ -57,6 +57,7 @@ const state = loadState();
 let currentQuestion = null;
 let answered = false;
 let sessionTimer = null;
+let autoNextTimer = null;
 
 init();
 
@@ -243,6 +244,7 @@ function setMode(mode) {
 }
 
 function renderQuestion() {
+  clearAutoNext();
   if (!state.activeSession) {
     currentQuestion = null;
     elements.wordPos.textContent = "Ready";
@@ -278,7 +280,7 @@ function renderQuestion() {
 
   elements.wordPos.textContent = `${entry.pos || "-"} · ${entry.level}`;
   elements.wordText.textContent = entry.word;
-  elements.wordHint.textContent = `Strength ${Math.round(getStrength(entry) * 100)}% · ${entry.meaning}`;
+  elements.wordHint.textContent = `Strength ${Math.round(getStrength(entry) * 100)}% · Adaptive selection`;
   elements.feedbackText.textContent = "เลือกคำตอบที่ถูกต้อง";
 
   currentQuestion.choices.forEach((choice, index) => {
@@ -387,13 +389,25 @@ function answerQuestion(selectedMeaning, selectedButton) {
   });
   if (!correct) selectedButton.classList.add("wrong");
 
-  elements.feedbackText.textContent = correct ? "Correct +1" : `Wrong · ${entry.meaning}`;
-  elements.nextButton.disabled = false;
-
   applyLevelProgression(entry.level);
+  elements.feedbackText.textContent = correct ? "Correct +1" : `ผิด · เฉลยคือ ${entry.meaning}`;
+  elements.wordHint.textContent = correct ? "ตอบถูกแล้ว กด Next เพื่อไปข้อต่อไป" : "กำลังไปข้อต่อไป...";
+  elements.nextButton.disabled = false;
   saveState();
   renderDashboard();
   updateSaveButton();
+
+  if (!correct) {
+    elements.nextButton.disabled = true;
+    autoNextTimer = window.setTimeout(renderQuestion, 1800);
+  }
+}
+
+function clearAutoNext() {
+  if (autoNextTimer) {
+    window.clearTimeout(autoNextTimer);
+    autoNextTimer = null;
+  }
 }
 
 function speakCurrentWord() {
