@@ -37,6 +37,7 @@ const elements = {
   modePill: document.querySelector("#modePill"),
   reviewButton: document.querySelector("#reviewButton"),
   savedReviewButton: document.querySelector("#savedReviewButton"),
+  endTestButton: document.querySelector("#endTestButton"),
   newTestButton: document.querySelector("#newTestButton"),
   resetButton: document.querySelector("#resetButton"),
   speakButton: document.querySelector("#speakButton"),
@@ -147,6 +148,7 @@ function bindEvents() {
   elements.speakButton.addEventListener("click", speakCurrentWord);
   elements.reviewButton.addEventListener("click", () => setMode(state.userStats.mode === "review" ? "adaptive" : "review"));
   elements.savedReviewButton.addEventListener("click", () => setMode(state.userStats.mode === "saved" ? "adaptive" : "saved"));
+  elements.endTestButton.addEventListener("click", endCurrentTest);
   elements.newTestButton.addEventListener("click", openNewTest);
   elements.resetButton.addEventListener("click", resetProgress);
 }
@@ -200,8 +202,22 @@ function openNewTest() {
     archiveCurrentSession();
   }
   state.activeSession = null;
+  clearAutoNext();
   saveState();
   renderStartSummary();
+  renderDashboard();
+  lockApp();
+}
+
+function endCurrentTest() {
+  if (!state.activeSession) return;
+  archiveCurrentSession();
+  state.activeSession = null;
+  clearAutoNext();
+  saveState();
+  renderStartSummary();
+  renderQuestion();
+  renderDashboard();
   lockApp();
 }
 

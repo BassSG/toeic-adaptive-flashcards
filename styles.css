@@ -275,6 +275,12 @@ h1 {
   color: #075e59;
 }
 
+.ghost-button.end-test {
+  background: #111827;
+  border-color: #111827;
+  color: #ffffff;
+}
+
 .ghost-button.danger {
   color: var(--rose);
 }
