@@ -1,6 +1,12 @@
-const LEVELS = ["A1", "A2", "B1", "B2", "C1", "C2"];
+const LEVELS = ["A", "B", "C"];
 const STORAGE_KEY = "toeic-adaptive-oxford-3000:v2";
 const LEGACY_STORAGE_KEY = "toeic-adaptive-oxford-3000:v1";
+const SOURCE_TIER_MAP = {
+  A1: "A",
+  A2: "A",
+  B1: "B",
+  B2: "C",
+};
 
 const vocab = (window.VOCAB_DATA || []).map((entry, index) => ({
   ...entry,
@@ -9,7 +15,7 @@ const vocab = (window.VOCAB_DATA || []).map((entry, index) => ({
 
 const byId = new Map(vocab.map((entry) => [entry.id, entry]));
 const byLevel = LEVELS.reduce((acc, level) => {
-  acc[level] = vocab.filter((entry) => entry.level === level);
+  acc[level] = vocab.filter((entry) => getTier(entry.level) === level);
   return acc;
 }, {});
 const sourceLevels = LEVELS.filter((level) => byLevel[level].length > 0);
@@ -86,7 +92,7 @@ function loadState() {
       score: 0,
       correct: 0,
       totalAnswered: 0,
-      currentLevel: "A1",
+      currentLevel: "A",
       mode: "adaptive",
       levelStats: {},
       currentStreak: 0,
@@ -112,12 +118,14 @@ function loadState() {
 }
 
 function normalizeState(saved, fallback) {
+  const userStats = { ...fallback.userStats, ...(saved.userStats || {}) };
+  userStats.currentLevel = normalizeTier(userStats.currentLevel);
   return {
     ...fallback,
     ...saved,
     activeSession: saved.activeSession || null,
     sessionHistory: Array.isArray(saved.sessionHistory) ? saved.sessionHistory : [],
-    userStats: { ...fallback.userStats, ...(saved.userStats || {}) },
+    userStats,
     savedWords: Array.isArray(saved.savedWords) ? saved.savedWords : [],
     wrongWords: Array.isArray(saved.wrongWords) ? saved.wrongWords : [],
     memory: saved.memory || {},
@@ -212,7 +220,7 @@ function archiveCurrentSession() {
 }
 
 function firstAvailableLevel() {
-  return sourceLevels[0] || "A1";
+  return sourceLevels[0] || "A";
 }
 
 function renderLevelSelector() {
@@ -221,8 +229,8 @@ function renderLevelSelector() {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "level-button";
-    button.textContent = byLevel[level].length === 0 ? `${level} · no data` : level;
-    button.title = byLevel[level].length === 0 ? "ยังไม่มีข้อมูลระดับนี้ใน PDF ที่ให้มา" : `${byLevel[level].length} words`;
+    button.textContent = level;
+    button.title = `${byLevel[level].length} words from PDF source`;
     button.classList.toggle("is-empty", byLevel[level].length === 0);
     button.classList.toggle("is-active", state.userStats.currentLevel === level);
     button.addEventListener("click", () => {
@@ -266,9 +274,9 @@ function renderQuestion() {
   if (!entry) {
     currentQuestion = null;
     elements.wordPos.textContent = state.userStats.currentLevel;
-    elements.wordText.textContent = "ยังไม่มีข้อมูล";
-    elements.wordHint.textContent = `ไฟล์ PDF ที่ใช้เป็น source มีข้อมูล ${sourceLevels.join(", ")} เท่านั้น ยังไม่มีคำศัพท์ระดับ ${state.userStats.currentLevel}`;
-    elements.feedbackText.textContent = "เลือก A1-B2 เพื่อทำข้อสอบ หรือเพิ่มไฟล์ C1/C2 ในเฟสถัดไป";
+    elements.wordText.textContent = "ไม่มีคำในชุดนี้";
+    elements.wordHint.textContent = "ถ้าอยู่ใน Saved หรือ Review ให้บันทึกคำหรือทำข้อสอบก่อน";
+    elements.feedbackText.textContent = "เลือก A, B, C เพื่อทำข้อสอบจาก PDF เดิม";
     updateModeControls();
     updateSaveButton();
     return;
@@ -279,7 +287,7 @@ function renderQuestion() {
     choices: buildChoices(entry),
   };
 
-  elements.wordPos.textContent = `${entry.pos || "-"} · ${entry.level}`;
+  elements.wordPos.textContent = `${entry.pos || "-"} · Source ${entry.level} · Tier ${getTier(entry.level)}`;
   elements.wordText.textContent = entry.word;
   elements.wordHint.textContent = `Strength ${Math.round(getStrength(entry) * 100)}% · Adaptive selection`;
   elements.feedbackText.textContent = "เลือกคำตอบที่ถูกต้อง";
@@ -342,8 +350,9 @@ function adaptiveRank(entry) {
 }
 
 function buildChoices(entry) {
+  const tier = getTier(entry.level);
   const distractorPool = uniqueByMeaning(
-    byLevel[entry.level].filter((item) => item.id !== entry.id && item.meaning !== entry.meaning)
+    byLevel[tier].filter((item) => item.id !== entry.id && item.meaning !== entry.meaning)
   );
   const fallbackPool = uniqueByMeaning(vocab.filter((item) => item.id !== entry.id && item.meaning !== entry.meaning));
   const choices = [entry.meaning];
@@ -380,7 +389,8 @@ function answerQuestion(selectedMeaning, selectedButton) {
 
   state.userStats.totalAnswered += 1;
   state.userStats.correct += correct ? 1 : 0;
-  updateLevelStats(entry.level, correct);
+  const activeTier = getTier(entry.level);
+  updateLevelStats(activeTier, correct);
   updateWrongWords(entry.id, correct, memory.strength);
 
   [...elements.answerGrid.children].forEach((button) => {
@@ -390,7 +400,7 @@ function answerQuestion(selectedMeaning, selectedButton) {
   });
   if (!correct) selectedButton.classList.add("wrong");
 
-  applyLevelProgression(entry.level);
+  applyLevelProgression(activeTier);
   elements.feedbackText.textContent = correct ? "Correct +1" : `ผิด · เฉลยคือ ${entry.meaning}`;
   elements.wordHint.textContent = correct ? "ตอบถูกแล้ว กด Next เพื่อไปข้อต่อไป" : "กำลังไปข้อต่อไป...";
   elements.nextButton.disabled = false;
@@ -658,6 +668,15 @@ function formatTime(timestamp) {
 function formatHistoryItem(session) {
   const accuracy = Math.round(session.accuracy * 100);
   return `${session.tester} · ${accuracy}% · ${session.answered} ข้อ · ${formatTime(session.startedAt)}`;
+}
+
+function getTier(sourceLevel) {
+  return SOURCE_TIER_MAP[sourceLevel] || sourceLevel || "A";
+}
+
+function normalizeTier(level) {
+  if (LEVELS.includes(level)) return level;
+  return SOURCE_TIER_MAP[level] || "A";
 }
 
 function escapeHtml(value) {

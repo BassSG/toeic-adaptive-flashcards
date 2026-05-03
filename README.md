@@ -26,7 +26,11 @@ MVP web app for TOEIC vocabulary practice using vocabulary extracted from the pr
 
 ## Data Notes
 
-The supplied PDF contains CEFR levels A1-B2. The app renders C1/C2 as disabled because no C1/C2 vocabulary exists in the provided source file.
+The supplied PDF contains CEFR source levels A1-B2. The app groups them into three product tiers:
+
+- A = A1 + A2
+- B = B1
+- C = B2
 
 ## Run
 
