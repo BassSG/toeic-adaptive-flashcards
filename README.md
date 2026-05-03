@@ -34,4 +34,4 @@ Open `index.html` in a browser.
 
 ## GitHub Pages
 
-This app is static. Deploy from the `main` branch root with GitHub Pages.
+This app is static. The live site is published from the `gh-pages` branch.
