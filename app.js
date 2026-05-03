@@ -19,6 +19,9 @@ const byLevel = LEVELS.reduce((acc, level) => {
   return acc;
 }, {});
 const sourceLevels = LEVELS.filter((level) => byLevel[level].length > 0);
+const RECENT_WORD_LIMIT = 12;
+const RECENT_FILTER_MIN_POOL = 8;
+const ADAPTIVE_TOP_PICK = 8;
 
 const elements = {
   appShell: document.querySelector("#appShell"),
@@ -65,6 +68,7 @@ let currentQuestion = null;
 let answered = false;
 let sessionTimer = null;
 let autoNextTimer = null;
+let recentWordIds = [];
 
 init();
 
@@ -309,16 +313,19 @@ function selectEntry() {
   const pool = getActivePool();
   if (pool.length === 0) return null;
 
-  const ranked = pool
+  const recent = new Set(recentWordIds);
+  const spacedPool = pool.filter((entry) => entry.id !== currentQuestion?.entry.id && !recent.has(entry.id));
+  const selectionPool = spacedPool.length >= RECENT_FILTER_MIN_POOL ? spacedPool : pool;
+  const ranked = selectionPool
     .map((entry) => ({ entry, rank: adaptiveRank(entry) }))
     .sort((a, b) => a.rank - b.rank || a.entry.word.localeCompare(b.entry.word));
 
-  const top = ranked.slice(0, Math.min(6, ranked.length));
+  const top = ranked.slice(0, Math.min(ADAPTIVE_TOP_PICK, ranked.length));
   const sameAsCurrent = top.findIndex((item) => item.entry.id === currentQuestion?.entry.id);
   if (sameAsCurrent === 0 && top.length > 1) {
     return top[1].entry;
   }
-  return top[0].entry;
+  return weightedPick(top).entry;
 }
 
 function getActivePool() {
@@ -338,15 +345,18 @@ function getActivePool() {
 
 function adaptiveRank(entry) {
   const memory = state.memory[entry.id];
-  if (!memory || memory.correct + memory.wrong === 0) return 1;
+  if (!memory || memory.correct + memory.wrong === 0) return 1 + recentRankPenalty(entry);
 
   const strength = getStrength(entry);
   const hoursSinceSeen = memory.lastSeen ? (Date.now() - memory.lastSeen) / 36e5 : 999;
+  const minutesSinceSeen = memory.lastSeen ? (Date.now() - memory.lastSeen) / 6e4 : 999;
   const recentlyWrong = memory.lastWrongAt && Date.now() - memory.lastWrongAt < 12 * 36e5;
+  const cooldownMinutes = state.userStats.mode === "review" ? 3 : 8;
+  const spacingPenalty = minutesSinceSeen < cooldownMinutes ? 5 - (minutesSinceSeen / cooldownMinutes) * 2 : 0;
 
-  if (strength < 0.6) return strength - (recentlyWrong ? 0.2 : 0);
+  if (strength < 0.6) return 1 + strength + (recentlyWrong ? 0.7 : 0) + spacingPenalty + recentRankPenalty(entry);
   if (hoursSinceSeen > 24) return 2 - Math.min(hoursSinceSeen / 120, 0.8);
-  return 3 + strength + Math.min(memory.correct + memory.wrong, 20) / 100;
+  return 3 + strength + spacingPenalty + recentRankPenalty(entry) + Math.min(memory.correct + memory.wrong, 20) / 100;
 }
 
 function buildChoices(entry) {
@@ -386,6 +396,7 @@ function answerQuestion(selectedMeaning, selectedButton) {
     state.userStats.currentStreak = 0;
   }
   memory.strength = calculateStrength(memory);
+  rememberRecentWord(entry.id);
 
   state.userStats.totalAnswered += 1;
   state.userStats.correct += correct ? 1 : 0;
@@ -651,6 +662,28 @@ function shuffle(items) {
     [copy[i], copy[j]] = [copy[j], copy[i]];
   }
   return copy;
+}
+
+function weightedPick(rankedItems) {
+  if (rankedItems.length === 0) return null;
+  const weights = rankedItems.map((item) => 1 / Math.max(item.rank, 0.2));
+  const total = weights.reduce((sum, weight) => sum + weight, 0);
+  let cursor = Math.random() * total;
+  for (let index = 0; index < rankedItems.length; index += 1) {
+    cursor -= weights[index];
+    if (cursor <= 0) return rankedItems[index];
+  }
+  return rankedItems[0];
+}
+
+function recentRankPenalty(entry) {
+  const index = recentWordIds.indexOf(entry.id);
+  if (index === -1) return 0;
+  return ((RECENT_WORD_LIMIT - index) / RECENT_WORD_LIMIT) * 4;
+}
+
+function rememberRecentWord(id) {
+  recentWordIds = [id, ...recentWordIds.filter((item) => item !== id)].slice(0, RECENT_WORD_LIMIT);
 }
 
 function formatTime(timestamp) {
